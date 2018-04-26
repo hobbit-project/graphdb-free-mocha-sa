@@ -1,0 +1,127 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>eu.hobbit.mocha.systems</groupId>
+  <artifactId>graphdb</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>graphdb</name>
+  <url>http://maven.apache.org</url>
+
+  <properties>
+  <maven.compiler.target>1.8</maven.compiler.target>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  
+  <repositories>
+  	<repository>
+        <id>maven.aksw.internal</id>
+        <name>University Leipzig, AKSW Maven2 Repository</name>
+        <url>http://maven.aksw.org/repository/internal</url>
+    </repository>
+  	<repository>
+        <id>maven.aksw.snapshots</id>
+        <name>University Leipzig, AKSW Maven2 Repository</name>
+        <url>http://maven.aksw.org/repository/snapshots</url>
+        <snapshots>
+            <updatePolicy>always</updatePolicy>
+        </snapshots>
+        <releases>
+            <updatePolicy>always</updatePolicy>
+        </releases>
+    </repository>
+    <repository>
+ 		<id>local repository</id>
+   		<url>file://${project.basedir}/lib</url>
+  	</repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.1</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- Hobbit core -->
+    <dependency>
+    	<groupId>org.hobbit</groupId>
+    	<artifactId>core</artifactId>
+    	<version>1.0.10</version>
+    </dependency>
+    <!-- https://mvnrepository.com/artifact/org.apache.jena/jena-arq -->
+	<dependency>
+	    <groupId>org.apache.jena</groupId>
+	    <artifactId>jena-arq</artifactId>
+	    <version>3.2.0</version>
+	</dependency>
+    <!-- https://mvnrepository.com/artifact/org.apache.jena/jena-rdfconnection -->
+	<dependency>
+	    <groupId>org.apache.jena</groupId>
+	    <artifactId>jena-rdfconnection</artifactId>
+	    <version>3.2.0</version>
+	</dependency>
+    <!-- https://mvnrepository.com/artifact/org.apache.jena/jena-core -->
+	<dependency>
+	    <groupId>org.apache.jena</groupId>
+	    <artifactId>jena-core</artifactId>
+	    <version>3.2.0</version>
+	</dependency>
+	<!-- https://mvnrepository.com/artifact/com.ontotext.graphdb/graphdb-free-runtime -->
+	<dependency>
+	    <groupId>com.ontotext.graphdb</groupId>
+	    <artifactId>graphdb-free-runtime</artifactId>
+	    <version>8.5.0</version>
+	</dependency>
+	<!-- https://mvnrepository.com/artifact/org.eclipse.rdf4j/rdf4j-runtime -->
+	<dependency>
+	    <groupId>org.eclipse.rdf4j</groupId>
+	    <artifactId>rdf4j-runtime</artifactId>
+	    <version>2.3.1</version>
+	</dependency>
+	
+  </dependencies>
+
+  <build>
+  	<plugins>
+  		<plugin>
+  			<groupId>org.apache.maven.plugins</groupId>
+  			<artifactId>maven-shade-plugin</artifactId>
+  			<version>2.4.3</version>
+                <configuration>
+                	<filters>
+                		<filter>
+                			<artifact>*:*</artifact>
+                			<excludes>
+                                <exclude>META-INF/*.SF</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
+                            </excludes>
+                		</filter>
+                	</filters>
+                	<transformers>
+                        <transformer
+                            implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                            <manifestEntries>
+                                <X-Compile-Source-JDK>${maven.compile.source}</X-Compile-Source-JDK>
+                                <X-Compile-Target-JDK>${maven.compile.target}</X-Compile-Target-JDK>
+                            </manifestEntries>
+                        </transformer>
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                    </transformers>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+  		</plugin>
+  	</plugins>
+  </build>
+</project>
