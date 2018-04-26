@@ -1,2 +1,2 @@
-# JenaFusekiSystemAdapter
-System Adapter for Apache Jena Fuseki2 for the MOCHA Challenge
+# GraphDB Free 8.5 SystemAdapter
+System Adapter for GraphDB Free 8.5 for all MOCHA tasks
