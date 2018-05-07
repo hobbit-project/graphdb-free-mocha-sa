@@ -207,6 +207,11 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			    	tupleQuery.evaluate(writer);  
 			    } catch (Exception e) {
 					LOGGER.error("Task " + tId + " failed to execute.", e);
+					try {
+						queryResponseBos.write("{\"head\":{\"vars\":[\"xxx\"]},\"results\":{\"bindings\":[{\"xxx\":{\"type\":\"literal\",\"value\":\"XXX\"}}]}}".getBytes());
+					} catch (IOException e1) {
+						LOGGER.error("Problem while executing task " + tId + ": " + queryString, e);
+					}
 				}
 
 				byte[] results = queryResponseBos.toByteArray();
@@ -231,7 +236,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			File[] dataFiles = new File(datasetFolderName).listFiles();
 			// Add the first file
 			for(File inputFile : dataFiles) {
-				repositoryConnection.add(inputFile, graphURI, RDFFormat.NTRIPLES, context);
+				repositoryConnection.add(inputFile, graphURI, RDFFormat.TURTLE, context);
 			}
 			repositoryConnection.commit();
 		}
