@@ -1,4 +1,4 @@
-default: build dockerize-graphdb dockerize-sa
+default: build dockerize-sa
 
 build:	
 	mvn clean package -U -Dmaven.test.skip=true
