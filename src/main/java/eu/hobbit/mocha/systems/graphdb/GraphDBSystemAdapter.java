@@ -88,11 +88,10 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
     public void internalInit() throws InterruptedException {
     	graphDBContainerName = createContainer("git.project-hobbit.eu:4567/papv/triplestores/graphdb-free:8.5", new String[] { });
 		
-		// Instantiate a remote repository manager and initialize it
+    	LOGGER.info("Instantiate a remote repository manager and initialize it");
     	repositoryManager = RepositoryProvider.getRepositoryManager("http://" + graphDBContainerName + ":7200");
 		repositoryManager.initialize();
 		
-		// Wait for the GraphDB server to become online
 	    LOGGER.info("Waiting for the GraphDB server to become online...");
 		boolean serverOnline = false;
 	    while(!serverOnline) {
@@ -105,10 +104,10 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 	    }
 	    LOGGER.info("GraphDB server is now online.");
 
-		// Instantiate a repository graph model
+	    LOGGER.info("Instantiate a repository graph model");
 	    TreeModel graph = new TreeModel();
-	      
-		// Read repository configuration file
+	    
+	    LOGGER.info("Read repository configuration file");
 	    InputStream config = null;
 	    RDFParser rdfParser = null;
 	    try {
@@ -128,20 +127,20 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			}
 		}
 	    
-	    // Retrieve the repository node as a resource
+	    LOGGER.info("Retrieve the repository node as a resource");
 	    Resource repositoryNode =  Models.subject(graph
 	    		.filter(null, RDF.TYPE, RepositoryConfigSchema.REPOSITORY))
 	    		.orElseThrow(() -> new RuntimeException(
 	    				"Oops, no <http://www.openrdf.org/config/repository#mocha-repo> subject found!"));
 	    
-	    // Create a repository configuration object and add it to the repositoryManager		
+	    LOGGER.info("Create a repository configuration object and add it to the repositoryManager");
 	    RepositoryConfig repositoryConfig = RepositoryConfig.create(graph, repositoryNode);
 	    repositoryManager.addRepositoryConfig(repositoryConfig);
 	    
-	    // Get the repository from repository manager, note the repository id set in configuration .ttl file
+	    LOGGER.info("Get the repository from repository manager");
 	    repository = repositoryManager.getRepository("mocha-repo");
 	    
-	    // Open a connection to this repository
+	    LOGGER.info("Open a connection to the repository");
 	    repositoryConnection = repository.getConnection();
     }
 	/* (non-Javadoc)
@@ -174,7 +173,13 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			ByteBuffer buffer = ByteBuffer.wrap(data);
 			String insertQuery = RabbitMQUtils.readString(buffer); 
 			
-		    Update tupleQuery = repositoryConnection.prepareUpdate(insertQuery);
+			// rewrite insert to let graphdb to create the appropriate graphs while inserting
+			insertQuery = insertQuery.replaceFirst("INSERT", "").replaceFirst("WITH", "INSERT DATA { GRAPH");
+			insertQuery = insertQuery.substring(0, insertQuery.length() - 13).concat(" }");
+			String rewrittenInsertQuery = insertQuery;
+			
+			LOGGER.info("INSERT query received from data generator");
+		    Update tupleQuery = repositoryConnection.prepareUpdate(rewrittenInsertQuery);
 		    tupleQuery.execute();
 		}	
 	}
@@ -183,22 +188,22 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 	 * @see org.hobbit.core.components.TaskReceivingComponent#receiveGeneratedTask(java.lang.String, byte[])
 	 */
 	public void receiveGeneratedTask(String tId, byte[] data) {
-		if(dataLoadingFinished) {
-			LOGGER.info("Task " + tId + " received from task generator");
-			
+		if(dataLoadingFinished) {			
 			// read the query
 			ByteBuffer buffer = ByteBuffer.wrap(data);
 			String queryString = RabbitMQUtils.readString(buffer);
 			
 			if (queryString.contains("INSERT DATA")) {
+				LOGGER.info("Task " + tId + " (INSERT) received from task generator");
 				Update tupleQuery = repositoryConnection.prepareUpdate(queryString);
 			    tupleQuery.execute();
 			    try {
 					this.sendResultToEvalStorage(tId, RabbitMQUtils.writeString(""));
 				} catch (IOException e) {
-					LOGGER.error("Got an exception while sending results.", e);
+					LOGGER.error("Got an exception while sending results for task " + tId, e);
 				}
 			} else {
+				LOGGER.info("Task " + tId + " (SELECT) received from task generator");
 				TupleQuery tupleQuery = repositoryConnection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
 			    ByteArrayOutputStream queryResponseBos = null;
 			    try (TupleQueryResult result = tupleQuery.evaluate()) {
@@ -210,7 +215,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 					try {
 						queryResponseBos.write("{\"head\":{\"vars\":[\"xxx\"]},\"results\":{\"bindings\":[{\"xxx\":{\"type\":\"literal\",\"value\":\"XXX\"}}]}}".getBytes());
 					} catch (IOException e1) {
-						LOGGER.error("Problem while executing task " + tId + ": " + queryString, e);
+						LOGGER.error("Problem while executing task " + tId, e);
 					}
 				}
 
@@ -219,9 +224,9 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 				
 				try {
 					sendResultToEvalStorage(tId, results);
-					LOGGER.info("Results sent to evaluation storage.");
+					LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
 				} catch (IOException e) {
-					LOGGER.error("Exception while sending storage space cost to evaluation storage.", e);
+					LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
 				}
 			}		    
 		} 
