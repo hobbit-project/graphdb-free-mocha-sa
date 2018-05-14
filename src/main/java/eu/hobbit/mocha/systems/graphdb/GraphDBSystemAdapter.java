@@ -22,10 +22,9 @@ import org.eclipse.rdf4j.model.Resource;
 import org.eclipse.rdf4j.model.impl.TreeModel;
 import org.eclipse.rdf4j.model.util.Models;
 import org.eclipse.rdf4j.model.vocabulary.RDF;
+import org.eclipse.rdf4j.query.QueryEvaluationException;
 import org.eclipse.rdf4j.query.QueryLanguage;
 import org.eclipse.rdf4j.query.TupleQuery;
-import org.eclipse.rdf4j.query.TupleQueryResult;
-import org.eclipse.rdf4j.query.TupleQueryResultHandler;
 import org.eclipse.rdf4j.query.Update;
 import org.eclipse.rdf4j.query.resultio.sparqljson.SPARQLResultsJSONWriter;
 import org.eclipse.rdf4j.repository.Repository;
@@ -41,10 +40,8 @@ import org.eclipse.rdf4j.rio.RDFParseException;
 import org.eclipse.rdf4j.rio.RDFParser;
 import org.eclipse.rdf4j.rio.Rio;
 import org.eclipse.rdf4j.rio.helpers.StatementCollector;
-
 import org.hobbit.core.components.AbstractSystemAdapter;
 import org.hobbit.core.rabbit.RabbitMQUtils;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,6 +57,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 	private AtomicInteger totalReceived = new AtomicInteger(0);
 	private AtomicInteger totalSent = new AtomicInteger(0);
 	private Semaphore allVersionDataReceivedMutex = new Semaphore(0);
+	private Semaphore allTaskExecutedOrTimeoutMutex = new Semaphore(0);
 
 	// used to check if bulk loading phase has finished in  order to proceed with the querying phase
 	private boolean dataLoadingFinished = false;
@@ -168,7 +166,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 					if (fileName.contains("/")) {
 						fileName = fileName.replaceAll("[^/]*[/]", "");
 					}
-					FileUtils.writeByteArrayToFile(new File(datasetFolderName + File.separator + fileName), dataContentBytes);
+					FileUtils.writeByteArrayToFile(new File(datasetFolderName + File.separator + fileName), dataContentBytes, true);
 				} catch (IOException e) {
 					LOGGER.error("Exception while writing data file", e);
 				}
@@ -232,23 +230,19 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 					try {
 						readLock = lock.tryReadLock();
 						TupleQuery tupleQuery = repositoryConnection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
-					    ByteArrayOutputStream queryResponseBos = null;
-					    try (TupleQueryResult result = tupleQuery.evaluate()) {
-					    	queryResponseBos = new ByteArrayOutputStream();
-					    	TupleQueryResultHandler writer = new SPARQLResultsJSONWriter(queryResponseBos);
-					    	tupleQuery.evaluate(writer);  
-					    } catch (Exception e) {
+						ByteArrayOutputStream queryResponseBos = new ByteArrayOutputStream();
+						try {
+						    tupleQuery.evaluate(new SPARQLResultsJSONWriter(queryResponseBos));
+						    LOGGER.info("Task " + tId + " executed successfully.");
+						} catch(QueryEvaluationException e) {
 							LOGGER.error("Task " + tId + " failed to execute.", e);
 							try {
 								queryResponseBos.write("{\"head\":{\"vars\":[\"xxx\"]},\"results\":{\"bindings\":[{\"xxx\":{\"type\":\"literal\",\"value\":\"XXX\"}}]}}".getBytes());
 							} catch (IOException e1) {
-								LOGGER.error("Problem while executing task " + tId, e);
+								LOGGER.error("Exception while sending empty results of task " + tId + " to the evaluation storage.", e);
 							}
 						}
-
 						byte[] results = queryResponseBos.toByteArray();
-						LOGGER.info("Task " + tId + " executed successfully.");
-						
 						try {
 							sendResultToEvalStorage(tId, results);
 							LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
@@ -331,7 +325,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 		executor.shutdown();
 		try {
 			// Wait for existing tasks to terminate
-			if (!executor.awaitTermination(20, TimeUnit.MINUTES)) {
+			if (!executor.awaitTermination(2, TimeUnit.HOURS)) {
 				// After timeout cancel currently executing tasks
 				LOGGER.info("Timeout of 20 minutes reached. Shutdown now.");
 				executor.shutdownNow();
@@ -339,12 +333,15 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 				if (!executor.awaitTermination(60, TimeUnit.SECONDS))
 					LOGGER.error("Executor service did not terminate");
 			}
+			LOGGER.info("All tasks executed successfully before timeout reached.");
 		} catch (InterruptedException ie) {
 			// (Re-)Cancel if current thread also interrupted
 			LOGGER.info("Current thread interrupted. Shutdown now.");
 			executor.shutdownNow();
 			// Preserve interrupt status
 			Thread.currentThread().interrupt();
+		} finally {
+			allTaskExecutedOrTimeoutMutex.release();
 		}
 	}
 	
@@ -353,6 +350,11 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 		LOGGER.info("Closing System Adapter...");
 		
 		shutdownAndAwaitTermination();
+		try {
+			allTaskExecutedOrTimeoutMutex.acquire();
+		} catch (InterruptedException e) {
+			LOGGER.error("An error occured while waiting for the executor service to terminate");
+		}
 		
 		// Shutdown connection, repository and manager
 		if(repositoryConnection != null) {
