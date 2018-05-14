@@ -7,11 +7,16 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
+import org.eclipse.rdf4j.common.concurrent.locks.Lock;
+import org.eclipse.rdf4j.common.concurrent.locks.ReadWriteLockManager;
+import org.eclipse.rdf4j.common.concurrent.locks.WritePrefReadWriteLockManager;
 import org.eclipse.rdf4j.model.IRI;
 import org.eclipse.rdf4j.model.Resource;
 import org.eclipse.rdf4j.model.impl.TreeModel;
@@ -65,6 +70,9 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 	private RepositoryManager repositoryManager = null;
 	private Repository repository = null;
 	private RepositoryConnection repositoryConnection = null;
+	
+	private ExecutorService executor = Executors.newFixedThreadPool(2);
+	private ReadWriteLockManager lock = new WritePrefReadWriteLockManager();
 
 	@Override
     public void init() throws Exception {
@@ -178,9 +186,17 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			insertQuery = insertQuery.substring(0, insertQuery.length() - 13).concat(" }");
 			String rewrittenInsertQuery = insertQuery;
 			
-			LOGGER.info("INSERT query received from data generator");
-		    Update tupleQuery = repositoryConnection.prepareUpdate(rewrittenInsertQuery);
-		    tupleQuery.execute();
+			executor.submit(() -> {
+				Lock writeLock = null;
+				try {
+					writeLock = lock.tryReadLock();
+					Update tupleQuery = repositoryConnection.prepareUpdate(rewrittenInsertQuery);
+				    tupleQuery.execute();
+				} finally {
+					writeLock.release();
+				}
+			});
+			LOGGER.info("INSERT query received from data generator and submited for execution.");		    
 		}	
 	}
 
@@ -194,40 +210,56 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 			String queryString = RabbitMQUtils.readString(buffer);
 			
 			if (queryString.contains("INSERT DATA")) {
-				LOGGER.info("Task " + tId + " (INSERT) received from task generator");
-				Update tupleQuery = repositoryConnection.prepareUpdate(queryString);
-			    tupleQuery.execute();
-			    try {
-					this.sendResultToEvalStorage(tId, RabbitMQUtils.writeString(""));
-				} catch (IOException e) {
-					LOGGER.error("Got an exception while sending results for task " + tId, e);
-				}
-			} else {
-				LOGGER.info("Task " + tId + " (SELECT) received from task generator");
-				TupleQuery tupleQuery = repositoryConnection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
-			    ByteArrayOutputStream queryResponseBos = null;
-			    try (TupleQueryResult result = tupleQuery.evaluate()) {
-			    	queryResponseBos = new ByteArrayOutputStream();
-			    	TupleQueryResultHandler writer = new SPARQLResultsJSONWriter(queryResponseBos);
-			    	tupleQuery.evaluate(writer);  
-			    } catch (Exception e) {
-					LOGGER.error("Task " + tId + " failed to execute.", e);
+				executor.submit(() -> {
+					Lock writeLock = null;
 					try {
-						queryResponseBos.write("{\"head\":{\"vars\":[\"xxx\"]},\"results\":{\"bindings\":[{\"xxx\":{\"type\":\"literal\",\"value\":\"XXX\"}}]}}".getBytes());
-					} catch (IOException e1) {
-						LOGGER.error("Problem while executing task " + tId, e);
+						writeLock = lock.tryWriteLock();
+						Update tupleQuery = repositoryConnection.prepareUpdate(queryString);
+					    tupleQuery.execute();
+					    try {
+							this.sendResultToEvalStorage(tId, RabbitMQUtils.writeString(""));
+						} catch (IOException e) {
+							LOGGER.error("Got an exception while sending results for task " + tId, e);
+						}
+					} finally {
+						writeLock.release();
 					}
-				}
+				});
+				LOGGER.info("Task " + tId + " (INSERT) received from task generator and submited for execution.");
+			} else {
+				executor.submit(() -> {
+					Lock readLock = null;
+					try {
+						readLock = lock.tryReadLock();
+						TupleQuery tupleQuery = repositoryConnection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+					    ByteArrayOutputStream queryResponseBos = null;
+					    try (TupleQueryResult result = tupleQuery.evaluate()) {
+					    	queryResponseBos = new ByteArrayOutputStream();
+					    	TupleQueryResultHandler writer = new SPARQLResultsJSONWriter(queryResponseBos);
+					    	tupleQuery.evaluate(writer);  
+					    } catch (Exception e) {
+							LOGGER.error("Task " + tId + " failed to execute.", e);
+							try {
+								queryResponseBos.write("{\"head\":{\"vars\":[\"xxx\"]},\"results\":{\"bindings\":[{\"xxx\":{\"type\":\"literal\",\"value\":\"XXX\"}}]}}".getBytes());
+							} catch (IOException e1) {
+								LOGGER.error("Problem while executing task " + tId, e);
+							}
+						}
 
-				byte[] results = queryResponseBos.toByteArray();
-				LOGGER.info("Task " + tId + " executed successfully.");
-				
-				try {
-					sendResultToEvalStorage(tId, results);
-					LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
-				} catch (IOException e) {
-					LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
-				}
+						byte[] results = queryResponseBos.toByteArray();
+						LOGGER.info("Task " + tId + " executed successfully.");
+						
+						try {
+							sendResultToEvalStorage(tId, results);
+							LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
+						} catch (IOException e) {
+							LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
+						}
+					} finally {
+						readLock.release();
+					}
+				});	
+				LOGGER.info("Task " + tId + " (SELECT) received from task generator and submited for execution.");
 			}		    
 		} 
 	}
@@ -293,9 +325,34 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
     	super.receiveCommand(command, data);
     }
 	
+	private void shutdownAndAwaitTermination() {
+		// Disable new tasks from being submitted
+		LOGGER.info("Shutting down executor service.");
+		executor.shutdown();
+		try {
+			// Wait for existing tasks to terminate
+			if (!executor.awaitTermination(20, TimeUnit.MINUTES)) {
+				// After timeout cancel currently executing tasks
+				LOGGER.info("Timeout of 20 minutes reached. Shutdown now.");
+				executor.shutdownNow();
+				// Wait a while for tasks to respond to being cancelled
+				if (!executor.awaitTermination(60, TimeUnit.SECONDS))
+					LOGGER.error("Executor service did not terminate");
+			}
+		} catch (InterruptedException ie) {
+			// (Re-)Cancel if current thread also interrupted
+			LOGGER.info("Current thread interrupted. Shutdown now.");
+			executor.shutdownNow();
+			// Preserve interrupt status
+			Thread.currentThread().interrupt();
+		}
+	}
+	
 	@Override
     public void close() throws IOException {
 		LOGGER.info("Closing System Adapter...");
+		
+		shutdownAndAwaitTermination();
 		
 		// Shutdown connection, repository and manager
 		if(repositoryConnection != null) {
