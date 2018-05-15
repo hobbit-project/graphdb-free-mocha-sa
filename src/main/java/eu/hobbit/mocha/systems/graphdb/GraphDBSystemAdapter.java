@@ -7,6 +7,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.jena.system.Txn;
 import org.eclipse.rdf4j.common.concurrent.locks.Lock;
 import org.eclipse.rdf4j.common.concurrent.locks.ReadWriteLockManager;
 import org.eclipse.rdf4j.common.concurrent.locks.WritePrefReadWriteLockManager;
@@ -54,6 +56,11 @@ import eu.hobbit.mocha.systems.graphdb.util.Constants;
 public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 			
 	private static final Logger LOGGER = LoggerFactory.getLogger(GraphDBSystemAdapter.class);
+	
+	private AtomicInteger totalDGInserts = new AtomicInteger(0);
+	private AtomicInteger totalDGInsertsExecuted = new AtomicInteger(0);
+	private AtomicInteger totalTGSelects = new AtomicInteger(0);
+	private AtomicInteger totalTGSelectsExecuted = new AtomicInteger(0);
 	
 	private AtomicInteger totalReceived = new AtomicInteger(0);
 	private AtomicInteger totalSent = new AtomicInteger(0);
@@ -185,17 +192,20 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 			insertQuery = insertQuery.substring(0, insertQuery.length() - 13).concat(" }");
 			String rewrittenInsertQuery = insertQuery;
 			
+			int currInsertCount = totalDGInserts.incrementAndGet();
 			executor.submit(() -> {
 				Lock writeLock = null;
 				try {
 					writeLock = lock.tryReadLock();
 					Update tupleQuery = repositoryConnection.prepareUpdate(rewrittenInsertQuery);
 				    tupleQuery.execute();
+					float f = (float) totalDGInsertsExecuted.incrementAndGet() / totalDGInserts.get() * 100;
+					LOGGER.info(new DecimalFormat("#.##").format(f) + "% - INSERT " + currInsertCount + " of " + totalDGInserts.get() + " executed successfully.");
 				} finally {
 					writeLock.release();
 				}
 			});
-			LOGGER.info("INSERT query received from data generator and submited for execution.");		    
+//			LOGGER.info("INSERT query (" + currInsertCount + ") received from data generator and submitted for execution.");    
 		}	
 	}
 
@@ -226,6 +236,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 				});
 				LOGGER.info("Task " + tId + " (INSERT) received from task generator and submited for execution.");
 			} else {
+				int currSelectCount = totalTGSelects.incrementAndGet();
 				executor.submit(() -> {
 					Lock readLock = null;
 					try {
@@ -234,7 +245,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 						ByteArrayOutputStream queryResponseBos = new ByteArrayOutputStream();
 						try {
 						    tupleQuery.evaluate(new SPARQLResultsJSONWriter(queryResponseBos));
-						    LOGGER.info("Task " + tId + " executed successfully.");
+//						    LOGGER.info("Task " + tId + " executed successfully.");
 						} catch(QueryEvaluationException e) {
 							LOGGER.error("Task " + tId + " failed to execute.", e);
 							try {
@@ -246,15 +257,17 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 						byte[] results = queryResponseBos.toByteArray();
 						try {
 							sendResultToEvalStorage(tId, results);
-							LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
+//							LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
 						} catch (Exception e) {
 							LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
 						}
+						float f = (float) totalTGSelectsExecuted.incrementAndGet() / totalTGSelects.get() * 100;
+						LOGGER.info(new DecimalFormat("#.##").format(f) + "% - SELECT " + currSelectCount + " of " + totalTGSelects.get() + " executed successfully.");
 					} finally {
 						readLock.release();
 					}
 				});	
-				LOGGER.info("Task " + tId + " (SELECT) received from task generator and submited for execution.");
+//				LOGGER.info("Task " + tId + " (SELECT) received from task generator and submited for execution.");
 			}		    
 		} 
 	}
