@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with core.  If not, see <http://www.gnu.org/licenses/>.
  */
-package eu.hobbit.core.run;
+package org.hobbit.core.run;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
