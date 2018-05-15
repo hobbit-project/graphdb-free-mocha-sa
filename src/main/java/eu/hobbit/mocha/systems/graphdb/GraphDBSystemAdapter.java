@@ -41,6 +41,7 @@ import org.eclipse.rdf4j.rio.RDFParser;
 import org.eclipse.rdf4j.rio.Rio;
 import org.eclipse.rdf4j.rio.helpers.StatementCollector;
 import org.hobbit.core.components.AbstractSystemAdapter;
+import org.hobbit.core.components.AbstractSystemAdapter1;
 import org.hobbit.core.rabbit.RabbitMQUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +51,7 @@ import eu.hobbit.mocha.systems.graphdb.util.Constants;
 /**
  * @author Vassilis Papakonstantinou (papv@ics.forth.gr)
  */
-public class GraphDBSystemAdapter extends AbstractSystemAdapter {
+public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 			
 	private static final Logger LOGGER = LoggerFactory.getLogger(GraphDBSystemAdapter.class);
 	
@@ -246,7 +247,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter {
 						try {
 							sendResultToEvalStorage(tId, results);
 							LOGGER.info("Results for task " + tId + " sent to evaluation storage.");
-						} catch (IOException e) {
+						} catch (Exception e) {
 							LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
 						}
 					} finally {
