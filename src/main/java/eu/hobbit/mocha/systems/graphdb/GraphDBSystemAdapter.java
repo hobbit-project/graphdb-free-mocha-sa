@@ -200,7 +200,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 					Update tupleQuery = repositoryConnection.prepareUpdate(rewrittenInsertQuery);
 				    tupleQuery.execute();
 					float f = (float) totalDGInsertsExecuted.incrementAndGet() / totalDGInserts.get() * 100;
-					LOGGER.info(new DecimalFormat("#.##").format(f) + "% - INSERT " + currInsertCount + " of " + totalDGInserts.get() + " executed successfully.");
+					LOGGER.info(new DecimalFormat("#.##").format(f) + "% of received INSERTs (" + currInsertCount + " of " + totalTGSelects.get() + ") have been successfully executed.");
 				} finally {
 					writeLock.release();
 				}
@@ -262,7 +262,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 							LOGGER.error("Exception while sending results of task " + tId + " to evaluation storage.", e);
 						}
 						float f = (float) totalTGSelectsExecuted.incrementAndGet() / totalTGSelects.get() * 100;
-						LOGGER.info(new DecimalFormat("#.##").format(f) + "% - SELECT " + currSelectCount + " of " + totalTGSelects.get() + " executed successfully.");
+						LOGGER.info(new DecimalFormat("#.##").format(f) + "% of received SELECTs (" + currSelectCount + " of " + totalTGSelects.get() + ") have been successfully executed.");
 					} finally {
 						readLock.release();
 					}
