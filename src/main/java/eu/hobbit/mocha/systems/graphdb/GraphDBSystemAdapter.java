@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.http.conn.HttpHostConnectException;
 import org.apache.jena.system.Txn;
 import org.eclipse.rdf4j.common.concurrent.locks.Lock;
 import org.eclipse.rdf4j.common.concurrent.locks.ReadWriteLockManager;
@@ -107,6 +108,7 @@ public class GraphDBSystemAdapter extends AbstractSystemAdapter1 {
 		repositoryManager.initialize();
 		
 	    LOGGER.info("Waiting for the GraphDB server to become online...");
+	    TimeUnit.SECONDS.sleep(15);
 		boolean serverOnline = false;
 	    while(!serverOnline) {
 	    	try {
